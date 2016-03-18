@@ -1,49 +1,25 @@
 package com.j256.ormlite.dao;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.isA;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-
-import org.junit.Test;
-
 import com.j256.ormlite.BaseCoreTest;
 import com.j256.ormlite.dao.Dao.CreateOrUpdateStatus;
 import com.j256.ormlite.field.DataType;
-import com.j256.ormlite.stmt.DeleteBuilder;
-import com.j256.ormlite.stmt.GenericRowMapper;
-import com.j256.ormlite.stmt.PreparedDelete;
-import com.j256.ormlite.stmt.PreparedQuery;
-import com.j256.ormlite.stmt.PreparedUpdate;
-import com.j256.ormlite.stmt.QueryBuilder;
+import com.j256.ormlite.stmt.*;
 import com.j256.ormlite.stmt.StatementBuilder.StatementType;
-import com.j256.ormlite.stmt.UpdateBuilder;
 import com.j256.ormlite.support.CompiledStatement;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.support.DatabaseResults;
 import com.j256.ormlite.table.DatabaseTableConfig;
 import com.j256.ormlite.table.ObjectFactory;
+import org.junit.Test;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.sql.SQLException;
+import java.util.*;
+import java.util.concurrent.Callable;
+
+import static org.easymock.EasyMock.*;
+import static org.junit.Assert.*;
 
 public class RuntimeExceptionDaoTest extends BaseCoreTest {
 
@@ -191,13 +167,13 @@ public class RuntimeExceptionDaoTest extends BaseCoreTest {
 		assertEquals(1, results.size());
 		assertEquals(val, results.get(0).val);
 
-		QueryBuilder<Foo, Integer> qb = dao.queryBuilder();
+		RuntimeExceptionQueryBuilder<Foo, Integer> qb = dao.queryBuilder();
 		results = dao.query(qb.prepare());
 		assertNotNull(results);
 		assertEquals(1, results.size());
 		assertEquals(val, results.get(0).val);
 
-		UpdateBuilder<Foo, Integer> ub = dao.updateBuilder();
+		RuntimeExceptionUpdateBuilder<Foo, Integer> ub = dao.updateBuilder();
 		int val2 = 65809;
 		ub.updateColumnValue(Foo.VAL_COLUMN_NAME, val2);
 		assertEquals(1, dao.update(ub.prepare()));

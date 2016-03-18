@@ -1,12 +1,5 @@
 package com.j256.ormlite.dao;
 
-import java.io.IOException;
-import java.sql.SQLException;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-
 import com.j256.ormlite.dao.Dao.CreateOrUpdateStatus;
 import com.j256.ormlite.dao.Dao.DaoObserver;
 import com.j256.ormlite.field.DataType;
@@ -14,27 +7,28 @@ import com.j256.ormlite.field.FieldType;
 import com.j256.ormlite.logger.Log.Level;
 import com.j256.ormlite.logger.Logger;
 import com.j256.ormlite.logger.LoggerFactory;
-import com.j256.ormlite.stmt.DeleteBuilder;
-import com.j256.ormlite.stmt.GenericRowMapper;
-import com.j256.ormlite.stmt.PreparedDelete;
-import com.j256.ormlite.stmt.PreparedQuery;
-import com.j256.ormlite.stmt.PreparedUpdate;
-import com.j256.ormlite.stmt.QueryBuilder;
-import com.j256.ormlite.stmt.UpdateBuilder;
+import com.j256.ormlite.stmt.*;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.support.DatabaseResults;
 import com.j256.ormlite.table.DatabaseTableConfig;
 import com.j256.ormlite.table.ObjectFactory;
 
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
+
 /**
  * Proxy to a {@link Dao} that wraps each Exception and rethrows it as RuntimeException. You can use this if your usage
  * pattern is to ignore all exceptions. That's not a pattern that I like so it's not the default.
- * 
+ *
  * <pre>
  * RuntimeExceptionDao&lt;Account, String&gt; accountDao = RuntimeExceptionDao.createDao(connectionSource, Account.class);
  * </pre>
- * 
+ *
  * @author graywatson
  */
 public class RuntimeExceptionDao<T, ID> implements CloseableIterable<T> {
@@ -185,15 +179,15 @@ public class RuntimeExceptionDao<T, ID> implements CloseableIterable<T> {
 	/**
 	 * @see Dao#queryBuilder()
 	 */
-	public QueryBuilder<T, ID> queryBuilder() {
-		return dao.queryBuilder();
+	public RuntimeExceptionQueryBuilder<T, ID> queryBuilder() {
+		return new RuntimeExceptionQueryBuilder<T, ID>(dao.queryBuilder());
 	}
 
 	/**
 	 * @see Dao#updateBuilder()
 	 */
-	public UpdateBuilder<T, ID> updateBuilder() {
-		return dao.updateBuilder();
+	public RuntimeExceptionUpdateBuilder<T, ID> updateBuilder() {
+		return new RuntimeExceptionUpdateBuilder<T, ID>(dao.updateBuilder());
 	}
 
 	/**

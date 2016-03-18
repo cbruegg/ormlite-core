@@ -17,8 +17,8 @@ public abstract class RuntimeExceptionStatementBuilder<T, ID> {
     /**
      * @see StatementBuilder#where()
      */
-    public Where<T, ID> where() {
-        return internalBuilder.where();
+    public RuntimeExceptionWhere<T, ID> where() {
+        return new RuntimeExceptionWhere<T, ID>(internalBuilder.where());
     }
 
     /**

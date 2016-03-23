@@ -19,8 +19,10 @@ public class RawQueryBuilder {
     // ??  -> Table / column name
     // ?   -> escaped value
 
-    private static final Pattern escapePattern = Pattern.compile("\\?\\?\\?|\\?\\?|\\?");
-    public static final String SQL_NAME_PLACEHOLDER = "??";
+    private static final Pattern CUSTOM_ARGUMENT_PATTERN = Pattern.compile("\\?\\?|\\?");
+    private static final String SQL_NAME_PLACEHOLDER = "??";
+    private static final Pattern SQL_ARGUMENT_PATTERN = Pattern.compile("\\?");
+    private static final Pattern SQL_EQUALS_WITH_WHITESPACE_PATTERN = Pattern.compile("(\\s)+=(\\s)+");
 
     /**
      * Iterate over the array and replace all arrays inside the
@@ -137,7 +139,7 @@ public class RawQueryBuilder {
 
             // Find the corresponding ? in the clause
             // and replace it with the n-tuple
-            Matcher matcher = escapePattern.matcher(whereClause);
+            Matcher matcher = CUSTOM_ARGUMENT_PATTERN.matcher(whereClause);
             int i = 0;
             while (matcher.find()) {
                 if (i == iterableIndex) {
@@ -156,7 +158,7 @@ public class RawQueryBuilder {
         // Split args into escaped args and table / column names
         List<Object> escapedArgs = new ArrayList<Object>();
         List<String> sqlNameArgs = new ArrayList<String>();
-        Matcher matcher = escapePattern.matcher(iterableInlinedClause);
+        Matcher matcher = CUSTOM_ARGUMENT_PATTERN.matcher(iterableInlinedClause);
         int i = 0;
         while (matcher.find()) {
             if (matcher.group().equals(SQL_NAME_PLACEHOLDER)) {
@@ -202,7 +204,7 @@ public class RawQueryBuilder {
      */
     private static String replaceEqNullWithIsNull(String statement, List<ArgumentHolder> argumentHolders) {
         StringBuilder nullClauseBuilder = new StringBuilder(statement);
-        Matcher argumentMatcher = Pattern.compile("\\?").matcher(statement);
+        Matcher argumentMatcher = SQL_ARGUMENT_PATTERN.matcher(statement);
         List<MatchResult> matches = toMatchResults(argumentMatcher);
         for (int match = matches.size() - 1; match > -1; match--) {
             int argumentEndIndex = matches.get(match).end();
@@ -210,10 +212,9 @@ public class RawQueryBuilder {
             if (argumentHolder instanceof NullArgHolder) {
                 MatchResult matchResult = matches.get(match);
                 int groupIndex = matchResult.start();
-                Pattern equalsPattern = Pattern.compile("(\\s)+=(\\s)+");
                 // Find last pattern occurrence ending before groupIndex
                 String part = nullClauseBuilder.substring(0, groupIndex);
-                Matcher equalsMatcher = equalsPattern.matcher(part);
+                Matcher equalsMatcher = SQL_EQUALS_WITH_WHITESPACE_PATTERN.matcher(part);
                 List<MatchResult> equalsMatches = toMatchResults(equalsMatcher);
                 MatchResult lastMatch = equalsMatches.get(equalsMatches.size() - 1);
                 int start = lastMatch.start();

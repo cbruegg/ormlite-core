@@ -1,22 +1,31 @@
 package com.j256.ormlite.stmt;
 
+import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.RuntimeExceptionDao;
 import com.j256.ormlite.field.SqlType;
-import com.sun.istack.internal.NotNull;
+import com.j256.ormlite.table.DatabaseTableConfig;
 
-import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * @see #whereFromRaw(RuntimeExceptionDao, String, Object...)
+ * @see #whereFromRaw(Dao, String, Object...)
+ */
 public class RawQueryBuilder {
 
     // ??  -> Table / column name
     // ?   -> escaped value
 
     private static final Pattern escapePattern = Pattern.compile("\\?\\?\\?|\\?\\?|\\?");
+    public static final String SQL_NAME_PLACEHOLDER = "??";
 
+    /**
+     * Iterate over the array and replace all arrays inside the
+     * array with lists.
+     */
     private static void replaceArraysWithLists(Object[] arr) {
         for (int i = 0; i < arr.length; i++) {
             Object arg = arr[i];
@@ -45,6 +54,9 @@ public class RawQueryBuilder {
         }
     }
 
+    /**
+     * Get the index of the first iterable in the the array.
+     */
     private static int iterableInObjects(Object[] objects) {
         for (int i = 0; i < objects.length; i++) {
             Object object = objects[i];
@@ -55,6 +67,10 @@ public class RawQueryBuilder {
         return -1;
     }
 
+    /**
+     * Inline the what array into the 'into' array at the position
+     * 'at'. The into array is not modified.
+     */
     private static Object[] insert(Object[] into, Object[] what, int at) {
         Object[] newArr = new Object[into.length - 1 + what.length];
         int newPointer = 0;
@@ -73,7 +89,30 @@ public class RawQueryBuilder {
         return newArr;
     }
 
-    public static <T, ID> RuntimeExceptionWhere<T, ID> whereFromRaw(final RuntimeExceptionDao<T, ID> dao, String whereClause, Object... args) throws SQLException {
+    /**
+     * Build a {@link Where} object using a raw where clause without the leading WHERE.
+     * <p>
+     * Example: <code>whereFromRaw(fooDao, "?? = ? OR ?? = ?? OR ?? = ?", Foo.A, "a", Foo.A, Foo.B, Foo.A, null)</code>.
+     * Null arguments are automatically replaced with "IS NULL" in the clause. "??" denotes an SQL name
+     * (for example a table or column name), "?" denotes an escaped SQL argument.
+     *
+     * @see SqlType SqlType for supported object types
+     */
+    public static <T, ID> RuntimeExceptionWhere<T, ID> whereFromRaw(final RuntimeExceptionDao<T, ID> dao, String whereClause, Object... args) {
+        return new RuntimeExceptionWhere<T, ID>(whereFromRaw(dao.getWrappedDao(), whereClause, args));
+    }
+
+
+    /**
+     * Build a {@link Where} object using a raw where clause without the leading WHERE.
+     * <p>
+     * Example: <code>whereFromRaw(fooDao, "?? = ? OR ?? = ?? OR ?? = ?", Foo.A, "a", Foo.A, Foo.B, Foo.A, null)</code>.
+     * Null arguments are automatically replaced with "IS NULL" in the clause. "??" denotes an SQL name
+     * (for example a table or column name), "?" denotes an escaped SQL argument.
+     *
+     * @see SqlType SqlType for supported object types
+     */
+    public static <T, ID> Where<T, ID> whereFromRaw(final Dao<T, ID> dao, String whereClause, Object... args) {
         replaceArraysWithLists(args);
         StringBuilder whereClauseBuilder = new StringBuilder(whereClause);
 
@@ -116,33 +155,54 @@ public class RawQueryBuilder {
 
         // Split args into escaped args and table / column names
         List<Object> escapedArgs = new ArrayList<Object>();
-        List<String> tableNameArgs = new ArrayList<String>();
+        List<String> sqlNameArgs = new ArrayList<String>();
         Matcher matcher = escapePattern.matcher(iterableInlinedClause);
         int i = 0;
         while (matcher.find()) {
-            if (matcher.group().equals("??")) {
-                tableNameArgs.add((String) args[i]);
+            if (matcher.group().equals(SQL_NAME_PLACEHOLDER)) {
+                sqlNameArgs.add((String) args[i]);
             } else {
                 escapedArgs.add(args[i]);
             }
             i++;
         }
 
-        if (escapedArgs.size() + tableNameArgs.size() != args.length) {
+        if (escapedArgs.size() + sqlNameArgs.size() != args.length) {
             throw new IllegalArgumentException("Arguments in clause must match the number of provided arguments!");
         }
 
-        String inlinedClause = inlineTableNameArgs(iterableInlinedClause, tableNameArgs);
+        String tableName = DatabaseTableConfig.extractTableName(dao.getDataClass());
+        String inlinedNamesClause = inlineTableNameArgs(iterableInlinedClause, sqlNameArgs, tableName);
 
         // Determine types or remaining args, put into argumentholders for where.raw
-        List<ArgumentHolder> argumentHolders = new ArrayList<ArgumentHolder>(escapedArgs.size());
-        for (Object toBeEscaped : escapedArgs) {
+        List<ArgumentHolder> argumentHolders = toArgumentHolders(escapedArgs);
+
+        String withIsNull = replaceEqNullWithIsNull(inlinedNamesClause, argumentHolders);
+        filterNonNullArgumentHolder(argumentHolders);
+
+        return dao.queryBuilder().where().raw(withIsNull, argumentHolders.toArray(new ArgumentHolder[0]));
+    }
+
+    /**
+     * Map the argument objects that are associated with "?"
+     * in the SQL statement to argument holders by identifying their types.
+     */
+    private static List<ArgumentHolder> toArgumentHolders(List<Object> toBeEscapedArgs) {
+        List<ArgumentHolder> argumentHolders = new ArrayList<ArgumentHolder>(toBeEscapedArgs.size());
+        for (Object toBeEscaped : toBeEscapedArgs) {
             argumentHolders.add(toArgumentHolder(toBeEscaped));
         }
+        return argumentHolders;
+    }
 
-        // Replace " = ? " for null values with " IS NULL "
-        StringBuilder nullClauseBuilder = new StringBuilder(inlinedClause);
-        Matcher argumentMatcher = Pattern.compile("\\?").matcher(inlinedClause);
+    /**
+     * Replace occurrences of "XX = ?" where ? is a {@link NullArgHolder}
+     * with "XX IS NULL" and return the modified clause. The list of
+     * argumentHolders is not modified.
+     */
+    private static String replaceEqNullWithIsNull(String statement, List<ArgumentHolder> argumentHolders) {
+        StringBuilder nullClauseBuilder = new StringBuilder(statement);
+        Matcher argumentMatcher = Pattern.compile("\\?").matcher(statement);
         List<MatchResult> matches = toMatchResults(argumentMatcher);
         for (int match = matches.size() - 1; match > -1; match--) {
             int argumentEndIndex = matches.get(match).end();
@@ -161,21 +221,24 @@ public class RawQueryBuilder {
                 nullClauseBuilder.replace(start, argumentEndIndex, replacement);
             }
         }
+        return nullClauseBuilder.toString();
+    }
 
-        // Remove null args from holders
+    /**
+     * Remove {@link NullArgHolder}s from the list.
+     */
+    private static void filterNonNullArgumentHolder(List<ArgumentHolder> argumentHolders) {
         Iterator<ArgumentHolder> argumentHolderIterator = argumentHolders.iterator();
         while (argumentHolderIterator.hasNext()) {
             if (argumentHolderIterator.next() instanceof NullArgHolder) {
                 argumentHolderIterator.remove();
             }
         }
-
-        RuntimeExceptionWhere<T, ID> where = dao.queryBuilder().where();
-        where.raw(nullClauseBuilder.toString(), argumentHolders.toArray(new ArgumentHolder[0]));
-
-        return where;
     }
 
+    /**
+     * Returns a list of all matches.
+     */
     private static List<MatchResult> toMatchResults(Matcher matcher) {
         List<MatchResult> result = new ArrayList<MatchResult>();
         while (matcher.find()) {
@@ -184,6 +247,10 @@ public class RawQueryBuilder {
         return result;
     }
 
+    /**
+     * Determine the type of the object and return an
+     * appropriate {@link ArgumentHolder}.
+     */
     private static ArgumentHolder toArgumentHolder(Object arg) {
         if (arg == null) {
             return new NullArgHolder();
@@ -214,100 +281,21 @@ public class RawQueryBuilder {
         throw new IllegalArgumentException("Unsupported arg type");
     }
 
-    private static String inlineTableNameArgs(String clause, List<String> tableNameArgs) {
-        Queue<String> tableNameQueue = new LinkedList<String>(tableNameArgs);// TODO add prefix tablename
+    /**
+     * Replace '??' in the clause with the elements from the list.
+     */
+    private static String inlineTableNameArgs(String clause, List<String> tableNameArgs, String tableName) {
+        String quotedSqlNamePlaceHolder = Pattern.quote(SQL_NAME_PLACEHOLDER);
+        Queue<String> tableNameQueue = new LinkedList<String>(tableNameArgs);
 
-        for (int indexOfPlaceHolder = clause.indexOf("??"); indexOfPlaceHolder > -1; indexOfPlaceHolder = clause.indexOf("??")) {
-            String tableName = tableNameQueue.poll();
-            clause = clause.replaceFirst("\\?\\?", tableName);
+        for (int indexOfPlaceHolder = clause.indexOf(SQL_NAME_PLACEHOLDER);
+             indexOfPlaceHolder > -1;
+             indexOfPlaceHolder = clause.indexOf(SQL_NAME_PLACEHOLDER)) {
+            String sqlName = tableNameQueue.poll();
+            clause = clause.replaceFirst(quotedSqlNamePlaceHolder, String.format("`%s`.`%s`", tableName, sqlName));
         }
 
         return clause;
-    }
-
-    @NotNull
-    private static String unescapedValue(Object arg) {
-        if (arg == null) {
-            return "null";
-        }
-
-        if (arg instanceof String) {
-            return '\'' + (String) arg + '\'';
-        }
-
-        if (arg instanceof Number) {
-            return arg.toString();
-        }
-
-        StringBuilder sb = new StringBuilder();
-        if (arg instanceof byte[]) {
-            byte[] argCast = (byte[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof short[]) {
-            short[] argCast = (short[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof int[]) {
-            int[] argCast = (int[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof long[]) {
-            long[] argCast = (long[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof float[]) {
-            float[] argCast = (float[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof double[]) {
-            double[] argCast = (double[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(argCast[i]);
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof Object[]) {
-            Object[] argCast = (Object[]) arg;
-            for (int i = 0; i < argCast.length; i++) {
-                sb.append(unescapedValue(argCast[i]));
-                if (i + 1 != argCast.length) {
-                    sb.append(", ");
-                }
-            }
-        } else if (arg instanceof Iterable) {
-            Iterable<?> argCast = (Iterable<?>) arg;
-            Iterator<?> iterator = argCast.iterator();
-            while (iterator.hasNext()) {
-                sb.append(unescapedValue(iterator.next()));
-                if (iterator.hasNext()) {
-                    sb.append(", ");
-                }
-            }
-        }
-
-        return sb.toString();
     }
 
 

@@ -874,4 +874,11 @@ public class RuntimeExceptionDao<T, ID> implements CloseableIterable<T> {
 	private void logMessage(Exception e, String message) {
 		logger.log(LOG_LEVEL, e, message);
 	}
+
+	/**
+	 * Get the internal dao that is wrapped.
+     */
+	public Dao<T, ID> getWrappedDao() {
+		return dao;
+	}
 }

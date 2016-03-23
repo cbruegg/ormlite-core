@@ -89,21 +89,6 @@ public class RuntimeExceptionDaoTest extends BaseCoreTest {
         Dao<Foo, Integer> exceptionDao = createDao(Foo.class, true);
         RuntimeExceptionDao<Foo, Integer> dao = new RuntimeExceptionDao<Foo, Integer>(exceptionDao);
 
-        RuntimeExceptionWhere<Foo, Integer> where = RawQueryBuilder.whereFromRaw(dao, "?? = ? AND ?? = ?",
-                Foo.ID_COLUMN_NAME, 1, Foo.STRING_COLUMN_NAME, "d#");
-        String statement = where.getStatement();
-        where.query();
-
-        RuntimeExceptionWhere<Foo, Integer> where5 = RawQueryBuilder.whereFromRaw(dao, "?? = ? AND ?? in ?",
-                Foo.ID_COLUMN_NAME, "1", Foo.STRING_COLUMN_NAME, new String[]{"A", "B", "C"});
-        String statement5 = where5.getStatement();
-        where5.query();
-
-        RuntimeExceptionWhere<Foo, Integer> where3 = RawQueryBuilder.whereFromRaw(dao, "?? = ? AND ?? = ?",
-                Foo.ID_COLUMN_NAME, "1", Foo.STRING_COLUMN_NAME, null);
-        String statement3 = where3.getStatement();
-        where3.query();
-
         Foo foo = new Foo();
         int val = 1232131321;
         foo.val = val;

@@ -1,26 +1,5 @@
 package com.j256.ormlite.table;
 
-import static org.easymock.EasyMock.anyInt;
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.expectLastCall;
-import static org.easymock.EasyMock.isA;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
-
-import java.lang.reflect.Constructor;
-import java.sql.SQLException;
-import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import org.easymock.EasyMock;
-import org.easymock.IAnswer;
-import org.junit.Test;
-
 import com.j256.ormlite.BaseCoreTest;
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.db.DatabaseType;
@@ -32,6 +11,18 @@ import com.j256.ormlite.support.CompiledStatement;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.support.DatabaseResults;
+import org.easymock.EasyMock;
+import org.easymock.IAnswer;
+import org.junit.Test;
+
+import java.lang.reflect.Constructor;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.easymock.EasyMock.*;
+import static org.junit.Assert.*;
 
 public class TableUtilsTest extends BaseCoreTest {
 
@@ -514,6 +505,9 @@ public class TableUtilsTest extends BaseCoreTest {
 		int id;
 		@DatabaseField(columnName = NAME_FIELD_NAME)
 		String name;
+
+		@DatabaseField(columnName = NAME_FIELD_NAME, readOnly = true)
+		String samename;
 	}
 
 	protected static class Index {

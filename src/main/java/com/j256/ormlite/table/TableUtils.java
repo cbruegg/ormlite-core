@@ -1,14 +1,5 @@
 package com.j256.ormlite.table;
 
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import com.j256.ormlite.dao.BaseDaoImpl;
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
@@ -25,9 +16,12 @@ import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.support.DatabaseResults;
 
+import java.sql.SQLException;
+import java.util.*;
+
 /**
  * Couple utility methods for the creating, dropping, and maintenance of tables.
- * 
+ *
  * @author graywatson
  */
 public class TableUtils {
@@ -43,7 +37,7 @@ public class TableUtils {
 
 	/**
 	 * Issue the database statements to create the table associated with a class.
-	 * 
+	 *
 	 * @param connectionSource
 	 *            Associated connection source.
 	 * @param dataClass
@@ -64,7 +58,7 @@ public class TableUtils {
 
 	/**
 	 * Issue the database statements to create the table associated with a table configuration.
-	 * 
+	 *
 	 * @param connectionSource
 	 *            connectionSource Associated connection source.
 	 * @param tableConfig
@@ -88,7 +82,7 @@ public class TableUtils {
 	/**
 	 * Return an ordered collection of SQL statements that need to be run to create a table. To do the work of creating,
 	 * you should call {@link #createTable}.
-	 * 
+	 *
 	 * @param connectionSource
 	 *            Our connect source which is used to get the database type, not to apply the creates.
 	 * @param dataClass
@@ -109,7 +103,7 @@ public class TableUtils {
 	/**
 	 * Return an ordered collection of SQL statements that need to be run to create a table. To do the work of creating,
 	 * you should call {@link #createTable}.
-	 * 
+	 *
 	 * @param connectionSource
 	 *            Our connect source which is used to get the database type, not to apply the creates.
 	 * @param tableConfig
@@ -131,11 +125,11 @@ public class TableUtils {
 
 	/**
 	 * Issue the database statements to drop the table associated with a class.
-	 * 
+	 *
 	 * <p>
 	 * <b>WARNING:</b> This is [obviously] very destructive and is unrecoverable.
 	 * </p>
-	 * 
+	 *
 	 * @param connectionSource
 	 *            Associated connection source.
 	 * @param dataClass
@@ -158,11 +152,11 @@ public class TableUtils {
 
 	/**
 	 * Issue the database statements to drop the table associated with a table configuration.
-	 * 
+	 *
 	 * <p>
 	 * <b>WARNING:</b> This is [obviously] very destructive and is unrecoverable.
 	 * </p>
-	 * 
+	 *
 	 * @param connectionSource
 	 *            Associated connection source.
 	 * @param tableConfig
@@ -188,7 +182,7 @@ public class TableUtils {
 	/**
 	 * Clear all data out of the table. For certain database types and with large sized tables, which may take a long
 	 * time. In some configurations, it may be faster to drop and re-create the table.
-	 * 
+	 *
 	 * <p>
 	 * <b>WARNING:</b> This is [obviously] very destructive and is unrecoverable.
 	 * </p>
@@ -204,7 +198,7 @@ public class TableUtils {
 	/**
 	 * Clear all data out of the table. For certain database types and with large sized tables, which may take a long
 	 * time. In some configurations, it may be faster to drop and re-create the table.
-	 * 
+	 *
 	 * <p>
 	 * <b>WARNING:</b> This is [obviously] very destructive and is unrecoverable.
 	 * </p>
@@ -318,7 +312,50 @@ public class TableUtils {
 		List<String> statementsAfter = new ArrayList<String>();
 		// our statement will be set here later
 		boolean first = true;
+
+        // Filter out duplicate column definitions
+        Map<String, List<FieldType>> duplicateColumns = new HashMap<String, List<FieldType>>();
+        List<FieldType> newFieldTypes = new ArrayList<FieldType>(tableInfo.getFieldTypes().length);
 		for (FieldType fieldType : tableInfo.getFieldTypes()) {
+			String columnName = fieldType.getColumnName();
+			if (!duplicateColumns.containsKey(columnName)) {
+				duplicateColumns.put(columnName, new ArrayList<FieldType>());
+			}
+
+			duplicateColumns.get(columnName).add(fieldType);
+		}
+		for (String columnName : duplicateColumns.keySet()) {
+			List<FieldType> duplicates = duplicateColumns.get(columnName);
+			if (duplicates.size() == 1) {
+                newFieldTypes.add(duplicates.get(0));
+				continue;
+			}
+
+			int writableVars = 0;
+            for (int i = 0; i < duplicates.size(); i++) {
+                FieldType duplicate = duplicates.get(i);
+
+                if (i == 0) {
+                    // Only add the first definition
+                    newFieldTypes.add(duplicate);
+                }
+
+                if (duplicate.isId()) {
+                    throw new IllegalArgumentException("Column " + columnName + " is used by more than one field." +
+                            " This is only supported for non-id fields.");
+                }
+                if (!duplicate.isReadOnly()) {
+                    writableVars++;
+                }
+
+                if (writableVars > 1) {
+                    throw new IllegalArgumentException("Column " + columnName + " is used by more than one field." +
+                            " This is only supported if at most one column is not read-only.");
+                }
+            }
+		}
+
+		for (FieldType fieldType : newFieldTypes) {
 			// skip foreign collections
 			if (fieldType.isForeignCollection()) {
 				continue;

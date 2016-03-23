@@ -1,8 +1,8 @@
 package com.j256.ormlite.misc;
 
-import java.sql.SQLException;
-
 import com.j256.ormlite.dao.Dao;
+
+import java.sql.SQLException;
 
 /**
  * Base class that your data elements can extend which allow them to refresh, update, etc. themselves. ORMLite will
@@ -132,5 +132,19 @@ public abstract class BaseDaoEnabled<T, ID> {
 		if (dao == null) {
 			throw new SQLException("Dao has not been set on " + getClass() + " object: " + this);
 		}
+	}
+
+	/**
+	 * @see MultiplePrimaryKeyUtil#mergeIntoOneColumn(String, String...)
+	 */
+	protected static String mergeIntoOneColumn(String separator, String... values) {
+		return MultiplePrimaryKeyUtil.mergeIntoOneColumn(separator, values);
+	}
+
+	/**
+	 * @see MultiplePrimaryKeyUtil#mergeIntoOneColumn(String...)
+	 */
+	protected static String mergeIntoOneColumn(String... values) {
+		return MultiplePrimaryKeyUtil.mergeIntoOneColumn(values);
 	}
 }

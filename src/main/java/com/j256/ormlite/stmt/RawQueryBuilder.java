@@ -2,9 +2,14 @@ package com.j256.ormlite.stmt;
 
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.RuntimeExceptionDao;
+import com.j256.ormlite.field.FieldType;
 import com.j256.ormlite.field.SqlType;
+import com.j256.ormlite.support.CompiledStatement;
+import com.j256.ormlite.support.DatabaseConnection;
+import com.j256.ormlite.support.DatabaseResults;
 import com.j256.ormlite.table.DatabaseTableConfig;
 
+import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
@@ -104,6 +109,69 @@ public class RawQueryBuilder {
         return new RuntimeExceptionWhere<T, ID>(whereFromRaw(dao.getWrappedDao(), whereClause, args));
     }
 
+    /**
+     * Run an SQL statement of the form "SELECT <DaoTableName>.* [...] ?? = ? AND ?? = 'A'".
+     * Null arguments are automatically replaced with "IS NULL" in the clause. "??" denotes an SQL name
+     * (for example a table or column name), "?" denotes an escaped SQL argument.
+     */
+    public static <T, ID> List<T> selectRaw(final Dao<T, ID> dao, String statement, Object... args) {
+        // TODO test object cache
+        try {
+            PreparedArguments preparedArgs = prepareArguments(dao, statement, args);
+            DatabaseConnection connection = dao.getConnectionSource().getReadOnlyConnection();
+            FieldType[] fieldTypes = dao.queryBuilder().getResultFieldTypes();
+            CompiledStatement compiledStatement = connection.compileStatement(preparedArgs.clause,
+                    StatementBuilder.StatementType.SELECT, fieldTypes, DatabaseConnection.DEFAULT_RESULT_FLAGS);
+            for (int i = 0; i < preparedArgs.arguments.size(); i++) {
+                compiledStatement.setObject(i, preparedArgs.arguments.get(i), getSqlType(preparedArgs.arguments.get(i)));
+            }
+            DatabaseResults databaseResults = compiledStatement.runQuery(dao.getObjectCache());
+            List<T> results = new ArrayList<T>();
+            results.add(dao.mapSelectStarRow(databaseResults));
+            while (databaseResults.next()) {
+                results.add(dao.mapSelectStarRow(databaseResults));
+            }
+            return results;
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Run an SQL statement of the form "SELECT Count(<DaoTableName>.*) [...] ?? = ? AND ?? = 'A'".
+     * Null arguments are automatically replaced with "IS NULL" in the clause. "??" denotes an SQL name
+     * (for example a table or column name), "?" denotes an escaped SQL argument.
+     */
+    public static <T, ID> long selectLongRaw(final Dao<T, ID> dao, String statement, Object... args) {
+        try {
+            PreparedArguments preparedArgs = prepareArguments(dao, statement, args);
+            DatabaseConnection connection = dao.getConnectionSource().getReadOnlyConnection();
+            FieldType[] fieldTypes = dao.queryBuilder().getResultFieldTypes();
+            CompiledStatement compiledStatement = connection.compileStatement(preparedArgs.clause,
+                    StatementBuilder.StatementType.SELECT_LONG, fieldTypes, DatabaseConnection.DEFAULT_RESULT_FLAGS);
+            for (int i = 0; i < preparedArgs.arguments.size(); i++) {
+                compiledStatement.setObject(i, preparedArgs.arguments.get(i), getSqlType(preparedArgs.arguments.get(i)));
+            }
+            DatabaseResults databaseResults = compiledStatement.runQuery(dao.getObjectCache());
+            return databaseResults.getLong(0);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Helper class containing an SQL statement {@link #clause} with "?"-arguments
+     * corresponding to objects in {@link #arguments}.
+     */
+    private static class PreparedArguments {
+        private final String clause;
+        private final List<Object> arguments;
+
+        private PreparedArguments(String clause, List<Object> arguments) {
+            this.clause = clause;
+            this.arguments = arguments;
+        }
+    }
 
     /**
      * Build a {@link Where} object using a raw where clause without the leading WHERE.
@@ -115,6 +183,20 @@ public class RawQueryBuilder {
      * @see SqlType SqlType for supported object types
      */
     public static <T, ID> Where<T, ID> whereFromRaw(final Dao<T, ID> dao, String whereClause, Object... args) {
+        PreparedArguments preparedArgs = prepareArguments(dao, whereClause, args);
+
+        // Determine types or remaining args, put into argumentholders for where.raw
+        List<ArgumentHolder> argumentHolders = toArgumentHolders(preparedArgs.arguments);
+        return dao.queryBuilder().where().raw(preparedArgs.clause, argumentHolders.toArray(new ArgumentHolder[0]));
+    }
+
+    /**
+     * Inline iterables and arrays in the arguments, replacing corresponding
+     * "?" in the clause with tuples. Replace "??" args with SQL identifiers.
+     * Replace null args equals with "IS NULL" statements and remove the object
+     * from the array.
+     */
+    private static <T, ID> PreparedArguments prepareArguments(Dao<T, ID> dao, String whereClause, Object[] args) {
         replaceArraysWithLists(args);
         StringBuilder whereClauseBuilder = new StringBuilder(whereClause);
 
@@ -175,14 +257,10 @@ public class RawQueryBuilder {
 
         String tableName = DatabaseTableConfig.extractTableName(dao.getDataClass());
         String inlinedNamesClause = inlineTableNameArgs(iterableInlinedClause, sqlNameArgs, tableName);
+        String withIsNull = replaceEqNullWithIsNull(inlinedNamesClause, escapedArgs);
+        filterNonNull(escapedArgs);
 
-        // Determine types or remaining args, put into argumentholders for where.raw
-        List<ArgumentHolder> argumentHolders = toArgumentHolders(escapedArgs);
-
-        String withIsNull = replaceEqNullWithIsNull(inlinedNamesClause, argumentHolders);
-        filterNonNullArgumentHolder(argumentHolders);
-
-        return dao.queryBuilder().where().raw(withIsNull, argumentHolders.toArray(new ArgumentHolder[0]));
+        return new PreparedArguments(withIsNull, escapedArgs);
     }
 
     /**
@@ -192,7 +270,7 @@ public class RawQueryBuilder {
     private static List<ArgumentHolder> toArgumentHolders(List<Object> toBeEscapedArgs) {
         List<ArgumentHolder> argumentHolders = new ArrayList<ArgumentHolder>(toBeEscapedArgs.size());
         for (Object toBeEscaped : toBeEscapedArgs) {
-            argumentHolders.add(toArgumentHolder(toBeEscaped));
+            argumentHolders.add(new SelectArg(getSqlType(toBeEscaped), toBeEscaped));
         }
         return argumentHolders;
     }
@@ -202,14 +280,14 @@ public class RawQueryBuilder {
      * with "XX IS NULL" and return the modified clause. The list of
      * argumentHolders is not modified.
      */
-    private static String replaceEqNullWithIsNull(String statement, List<ArgumentHolder> argumentHolders) {
+    private static String replaceEqNullWithIsNull(String statement, List<Object> arguments) {
         StringBuilder nullClauseBuilder = new StringBuilder(statement);
         Matcher argumentMatcher = SQL_ARGUMENT_PATTERN.matcher(statement);
         List<MatchResult> matches = toMatchResults(argumentMatcher);
         for (int match = matches.size() - 1; match > -1; match--) {
             int argumentEndIndex = matches.get(match).end();
-            ArgumentHolder argumentHolder = argumentHolders.get(match);
-            if (argumentHolder instanceof NullArgHolder) {
+            Object argument = arguments.get(match);
+            if (argument == null) {
                 MatchResult matchResult = matches.get(match);
                 int groupIndex = matchResult.start();
                 // Find last pattern occurrence ending before groupIndex
@@ -228,10 +306,10 @@ public class RawQueryBuilder {
     /**
      * Remove {@link NullArgHolder}s from the list.
      */
-    private static void filterNonNullArgumentHolder(List<ArgumentHolder> argumentHolders) {
-        Iterator<ArgumentHolder> argumentHolderIterator = argumentHolders.iterator();
+    private static void filterNonNull(List<Object> objects) {
+        Iterator<Object> argumentHolderIterator = objects.iterator();
         while (argumentHolderIterator.hasNext()) {
-            if (argumentHolderIterator.next() instanceof NullArgHolder) {
+            if (argumentHolderIterator.next() == null) {
                 argumentHolderIterator.remove();
             }
         }
@@ -252,31 +330,31 @@ public class RawQueryBuilder {
      * Determine the type of the object and return an
      * appropriate {@link ArgumentHolder}.
      */
-    private static ArgumentHolder toArgumentHolder(Object arg) {
+    private static SqlType getSqlType(Object arg) {
         if (arg == null) {
-            return new NullArgHolder();
+            throw new NullPointerException();
         }
 
         if (arg instanceof String) {
-            return new SelectArg(SqlType.STRING, arg);
+            return SqlType.STRING;
         }
         if (arg instanceof Byte) {
-            return new SelectArg(SqlType.BYTE, arg);
+            return SqlType.BYTE;
         }
         if (arg instanceof Short) {
-            return new SelectArg(SqlType.SHORT, arg);
+            return SqlType.SHORT;
         }
         if (arg instanceof Integer) {
-            return new SelectArg(SqlType.INTEGER, arg);
+            return SqlType.INTEGER;
         }
         if (arg instanceof Long) {
-            return new SelectArg(SqlType.LONG, arg);
+            return SqlType.LONG;
         }
         if (arg instanceof Float) {
-            return new SelectArg(SqlType.FLOAT, arg);
+            return SqlType.FLOAT;
         }
         if (arg instanceof Double) {
-            return new SelectArg(SqlType.DOUBLE, arg);
+            return SqlType.DOUBLE;
         }
 
         throw new IllegalArgumentException("Unsupported arg type");

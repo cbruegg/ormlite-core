@@ -2,7 +2,7 @@ This is a fork of the ormlite-core library. The following functionality is chang
 - SQLExceptions are wrapped in more places for RuntimeExceptionDaos
 - Raw queries are made easier and safer using RawQueryHelper.whereFromRaw
 - The usage of multiple primary keys is made easier using the MultiplePrimaryKeyUtil
-  which takes multiple column values and merges them into one.
+  which takes multiple column values and merges them into one. (Be careful with this, only use it on columns that don't ever change after being inserted.)
 - The CREATE helpers in TableUtils filter out duplicate column definitions
   if they are not id fields and at most one of them is not read-only.
 

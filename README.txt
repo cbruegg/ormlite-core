@@ -1,3 +1,6 @@
+DEPRECATION NOTICE
+Shortly after implementing the changes below, I've discovered a library that works better for me than the modified ormlite version. With the help of the library's author and a few Pull Requests, raw queries are also supported well: https://github.com/requery/requery.
+
 This is a fork of the ormlite-core library. The following functionality is changed / added:
 - SQLExceptions are wrapped in more places for RuntimeExceptionDaos
 - Raw queries are made easier and safer using RawQueryHelper.whereFromRaw
